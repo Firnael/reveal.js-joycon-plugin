@@ -1,0 +1,43 @@
+{
+  "name": "reveal.js-joycon-plugin",
+  "description": "Control your RevealJS presentation with your Joy Con !",
+  "version": "1.0.0",
+  "type": "module",
+  "files": [
+    "dist",
+    "index.d.ts"
+  ],
+  "main": "./dist/joycon-plugin.umd.cjs",
+  "module": "./dist/joycon-plugin.js",
+  "exports": {
+    ".": {
+      "import": "./dist/joycon-plugin.js",
+      "require": "./dist/joycon-plugin.umd.cjs"
+    }
+  },
+  "scripts": {
+    "start": "vite",
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "@types/reveal.js": "^4.4.5",
+    "prettier": "^3.0.3",
+    "typescript": "^5.2.2",
+    "vite": "^4.5.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Firnael/reveal.js-joycon-plugin.git"
+  },
+  "keywords": [
+    "revealjs",
+    "joycon",
+    "plugin"
+  ],
+  "author": "Audron",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Firnael/reveal.js-joycon-plugin/issues"
+  },
+  "homepage": "https://github.com/Firnael/reveal.js-joycon-plugin#readme"
+}

@@ -1,0 +1,9 @@
+src/
+node_modules
+package-lock.json
+tsconfig.json
+vite.config.js
+main.js
+index.html
+.prettierrc
+.gitignore
