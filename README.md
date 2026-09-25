@@ -1,10 +1,14 @@
 # RevealJS - The Joy Con Plugin
 
+<img src="joycon-icon.webp" alt="Joy Con icon" width="120" />
+
 Control your RevealJS presentation with a Joy Con !
 
 Mapping is done for both the right and left joy cons, independently.
 
 Heavily inspired by [reveal.js-gamepad-plugin](https://github.com/bibixx/reveal.js-gamepad-plugin) from [bibixx](https://github.com/bibixx)
+
+Joy Con icon by [u/Carusofilms](https://www.reddit.com/user/Carusofilms/), shared freely in [this post](https://www.reddit.com/r/NintendoSwitch/comments/5ywk3r/its_not_perfect_but_i_just_finished_a_vector/).
 
 ## Installation
 
@@ -56,11 +60,24 @@ You can configure the plugin with the following options :
 // ...
 plugins: [ /* ... */ ],
 joycon: {
-    type: 'right',   // or 'left', depending on the Joy Con you want to use, default is 'right'
-    cooldown: 200,   // the time in ms between two actions, default is 300
-    pointerSpeed: 10 // the speed of the pointer, default is 20
+    type: 'right',         // or 'left', depending on the Joy Con you want to use, default is 'right'
+    cooldown: 200,         // the minimum time in ms between two actions of the same button, default is 300
+    pointerSpeed: 10,      // the speed of the pointer, default is 20
+    enableStick: false,    // navigate with the stick (when not pointing), default is false
+    statusIndicator: true  // show a discreet 🎮 in the bottom left corner on (dis)connection, default is true
 }
 ```
+
+## Robustness
+
+Built to survive Bluetooth drops and the Mac going to sleep, without reloading the page:
+
+- the pads are polled every frame (`navigator.getGamepads()`), connection events are only logged, so a reconnect is always picked up
+- an action fires once per press (on the press edge), holding a button never repeats it, so a button stuck "pressed" by a dropped link cannot skip slides
+- a pad that (re)connects is baselined silently: the press that wakes it up does nothing
+- a single polling loop for the whole presentation, whatever connects or disconnects
+
+Tip: keep the Mac awake while presenting with `caffeinate -dis npm run dev`.
 
 ## Development
 

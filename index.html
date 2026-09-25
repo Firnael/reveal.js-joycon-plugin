@@ -3,12 +3,82 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Plugin Test</title>
+    <link rel="icon" type="image/webp" href="/joycon-icon.webp">
+    <title>Joy Con Plugin Test</title>
+    <style>
+        :root { --bg: #1b1d23; --panel: #262932; --text: #e6e6e6; --muted: #8a8f9c; --on: #ff4554; --blue: #00c3e3; --ok: #4ec58b; }
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 20px; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+        header { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+        header img { width: 56px; }
+        header h1 { font-size: 22px; margin: 0; }
+        header p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+        main, .row { display: grid; grid-template-columns: 1.3fr 1fr; gap: 20px; }
+        .row { margin-top: 20px; }
+        section { background: var(--panel); border-radius: 12px; padding: 16px; }
+        h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 12px; }
+        .empty { color: var(--muted); font-style: italic; }
+        .pad { margin-bottom: 16px; }
+        .pad-title { font-weight: 600; margin-bottom: 8px; }
+        .badge { font-size: 12px; padding: 2px 8px; border-radius: 8px; margin-left: 8px; background: var(--ok); color: #111; }
+        .badge.off { background: var(--on); }
+        .buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+        .btn { min-width: 58px; padding: 6px 8px; border-radius: 8px; background: #33363f; text-align: center; font-size: 13px; }
+        .btn small { display: block; color: var(--muted); font-size: 10px; }
+        .btn.on { background: var(--on); color: #fff; }
+        .btn.on small { color: #fff; }
+        .axes { display: flex; gap: 12px; margin-top: 10px; }
+        .axis { flex: 1; font-size: 12px; color: var(--muted); }
+        .bar { position: relative; height: 8px; background: #33363f; border-radius: 4px; margin-top: 4px; }
+        .bar span { position: absolute; top: 0; bottom: 0; background: var(--blue); border-radius: 4px; }
+        .slide { font-size: 64px; font-weight: 700; text-align: center; margin: 8px 0 4px; font-variant-numeric: tabular-nums; }
+        .slide-flags { text-align: center; color: var(--muted); font-size: 13px; min-height: 18px; }
+        .log { font-family: ui-monospace, monospace; font-size: 13px; height: 220px; overflow-y: auto; margin: 0; white-space: pre-wrap; }
+        .log .t { color: var(--muted); }
+        .log .flash { animation: flash 1s; }
+        @keyframes flash { from { background: rgba(255, 69, 84, .35); } to { background: transparent; } }
+        button.clear { float: right; background: none; border: 1px solid #444; color: var(--muted); border-radius: 6px; cursor: pointer; font-size: 12px; }
+        .help p { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0; }
+    </style>
 </head>
 <body>
-    Joy Con Plugin Test
-    <br/>
-    (Open browser console to see stuff)
+    <header>
+        <img src="/joycon-icon.webp" alt="" />
+        <div>
+            <h1>Joy Con Plugin Test</h1>
+            <p>Press any button to wake the Joy Con up (the browser only exposes a pad after a press).
+                Then try: hold SR, cut Bluetooth, put the Mac to sleep.</p>
+        </div>
+    </header>
+
+    <main>
+        <section>
+            <h2>What the browser sees (raw, without the plugin)</h2>
+            <div id="pads"><p class="empty">No gamepad yet: press a button on the Joy Con.</p></div>
+        </section>
+        <section>
+            <button class="clear" data-clear="actions">clear</button>
+            <h2>What the plugin did</h2>
+            <div class="slide" id="slide">0.0</div>
+            <div class="slide-flags" id="flags"></div>
+            <pre class="log" id="actions"></pre>
+        </section>
+    </main>
+
+    <div class="row">
+        <section>
+            <button class="clear" data-clear="events">clear</button>
+            <h2>Events</h2>
+            <pre class="log" id="events"></pre>
+        </section>
+        <section class="help">
+            <h2>How to read this</h2>
+            <p>Left panel alive, no action on the right: <b>plugin</b> bug.<br />
+                Left panel dead, macOS lists the Joy Con as connected: <b>browser</b> side (press a button to wake it).<br />
+                Left panel dead, macOS lists it as disconnected: <b>OS / Bluetooth</b> side, the plugin can't help.</p>
+        </section>
+    </div>
+
     <script type="module" src="/main.js"></script>
 </body>
 </html>
