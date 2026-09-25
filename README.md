@@ -62,6 +62,8 @@ On macOS, a lone Joy Con is a "micro gamepad" for Apple's GameController layer, 
 - player light 1 turns on when the plugin has taken over the Joy Con
 - **laser pointer**: hold the stick press and point the Joy Con at the screen like a remote. The dot starts at the center on every press and follows the gyroscope; release to hide it
 
+The plugin's keys (`c` connect, `i` indicator) are registered through Reveal's own key bindings, so Reveal's default action on those keys never fires (with `c`: closing an overlay), and they are listed in Reveal's help (`?`).
+
 Both sources run side by side: WebHID for Joy Cons in Chrome, the Gamepad API for everything else (a Joy Con read by WebHID is ignored on the Gamepad API side, so nothing fires twice).
 
 ## Configuration
@@ -76,8 +78,9 @@ joycon: {
     cooldown: 200,         // the minimum time in ms between two actions of the same button, default is 300
     pointerSpeed: 10,      // the speed of the stick pointer (Gamepad API), default is 20
     enableStick: false,    // navigate with the stick (when not pointing), default is false
-    statusIndicator: true, // show a discreet 🎮 in the bottom left corner on (dis)connection, default is true
-    hidConnectKey: 'c',    // key opening the WebHID device picker (false to disable), default is 'c'
+    statusIndicator: true, // show the 🎮 indicator in the bottom left corner at load (see below), default is true
+    statusToggleKey: 'i',  // letter key showing / hiding the indicator live (false to disable), default is 'i'
+    hidConnectKey: 'c',    // letter key opening the WebHID device picker (false to disable), default is 'c'
     laser: {
         fov: 30,           // degrees of wrist rotation to sweep the whole screen width, default is 30
         // which gyroscope axis moves the dot, per side (defaults measured on a left Joy Con, right one to verify)
@@ -86,6 +89,19 @@ joycon: {
     }
 }
 ```
+
+## Status indicator
+
+A small 🎮 with a colored dot, bottom left (hover it for details: name, source, reports per second). Press `i` to show / hide it live, or set `statusIndicator: false` to start hidden:
+
+| Dot | Meaning |
+| --- | --- |
+| grey | plugin loaded, no controller yet |
+| green, pulsing | connected, and reports arriving (WebHID streams ~60 reports / s, the dot blinks with them) |
+| orange | WebHID Joy Con connected but silent for over a second: looks connected, sends nothing |
+| red | the controller was there and is gone: press any button on it to wake it up |
+
+With the Gamepad API (Firefox), a Joy Con only sends something when a button changes, so silence can't be told apart from a quiet hand: the dot stays green while it is connected.
 
 ## Robustness
 

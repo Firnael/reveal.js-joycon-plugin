@@ -18,6 +18,7 @@ Consumers: the talks in `../` (`paper-mario-stop-n-swop-talk`, `pokemon-glitches
 | `src/plugin.ts` | Reveal plugin: one polling loop over every input source, press-edge actions, status indicator, stick pointer |
 | `src/webhid.ts` | WebHID source (Chrome): Joy Con setup (subcommands), report parsing, watchdog |
 | `src/laser.ts` | Gyroscope laser pointer (hold the stick press) |
+| `src/status.ts` | Permanent indicator: grey (loaded) / green pulsing (reports arriving) / orange (connected, silent) / red (lost) |
 | `dist/` | **Committed** build output, what npm consumers get: rebuild before committing |
 | `index.html`, `main.js` | Test page (`npm start`): mocked Reveal API, everything shown on the page |
 | `index.d.ts` | Module typing for consumers |
@@ -54,6 +55,9 @@ Consumers: the talks in `../` (`paper-mario-stop-n-swop-talk`, `pokemon-glitches
 - **Joy Con quirks**: after a Bluetooth drop it sleeps, a button press reconnects it (normal, not a bug).
   After the battery ran flat, it once stayed "connected" in macOS while sending nothing: forget + re-pair
   fixed it.
+- **Keys go through `deck.addKeyBinding`**, never a raw `keydown` listener in Reveal: a registered binding
+  wins over Reveal's defaults (Reveal 5 uses `C` to close an overlay). Raw listener only when the deck has no
+  `addKeyBinding` (the test page's mock).
 - **A command-line GameController listener (Swift) receives no button input**: useless as an instrument.
   Firefox or `ioreg` read the raw device instead.
 
