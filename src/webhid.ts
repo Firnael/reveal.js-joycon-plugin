@@ -93,6 +93,9 @@ export type HIDPad = {
     name: string;
     side: Side;
     buttons: boolean[];
+    /** performance.now() of the last report of any kind */
+    lastReport: number;
+    hz: number;
 };
 
 export type HIDDebug = {
@@ -115,6 +118,7 @@ class JoyCon {
     battery = '?';
     mode = 'starting';
     hz = 0;
+    lastReport = 0;
     private packet = 0;
     private lastFullReport = 0;
     private lastInit = 0;
@@ -179,6 +183,7 @@ class JoyCon {
         const bytes = new Uint8Array(event.data.byteLength + 1);
         bytes[0] = event.reportId;
         bytes.set(new Uint8Array(event.data.buffer, event.data.byteOffset, event.data.byteLength), 1);
+        this.lastReport = performance.now();
 
         if (event.reportId === REPORT.SIMPLE_HID) {
             // simple mode: 2 bytes of buttons, already in raw bit order
@@ -275,7 +280,9 @@ export function createHIDSource(onGyro: GyroListener, log: (message: string) => 
                 key: j.key,
                 name: j.device.productName,
                 side: j.side,
-                buttons: j.buttons
+                buttons: j.buttons,
+                lastReport: j.lastReport,
+                hz: j.hz
             }));
         },
 

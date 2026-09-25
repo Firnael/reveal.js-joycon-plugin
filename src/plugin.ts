@@ -1,6 +1,7 @@
 import type { Api, Options } from 'reveal.js';
 import { createHIDSource } from './webhid';
 import { createLaser, DEFAULT_LASER_CONFIG, type LaserAxes } from './laser';
+import { createStatus, type StatusPad } from './status';
 
 const DEFAULT_CONFIG = {
     type: 'right',
@@ -8,6 +9,7 @@ const DEFAULT_CONFIG = {
     pointerSpeed: 20,
     enableStick: false,
     statusIndicator: true,
+    statusToggleKey: 'i',
     hidConnectKey: 'c'
 };
 
@@ -18,6 +20,7 @@ interface JoyConPluginOptions extends Options {
         pointerSpeed: number | undefined;
         enableStick: boolean | undefined;
         statusIndicator: boolean | undefined;
+        statusToggleKey: string | false | undefined;
         hidConnectKey: string | false | undefined;
         laser: { fov?: number; left?: Partial<LaserAxes>; right?: Partial<LaserAxes> } | undefined;
     };
@@ -46,6 +49,7 @@ type PadInput = {
     buttons: boolean[];
     axes: number[];
     hid: boolean;
+    status: StatusPad;
 };
 
 const RIGHT_JOYCON_BUTTON = {
@@ -100,6 +104,7 @@ export default () => {
         const ENABLE_STICK = config.joycon?.enableStick ?? DEFAULT_CONFIG.enableStick;
         const STATUS_INDICATOR = config.joycon?.statusIndicator ?? DEFAULT_CONFIG.statusIndicator;
         const HID_CONNECT_KEY = config.joycon?.hidConnectKey ?? DEFAULT_CONFIG.hidConnectKey;
+        const STATUS_TOGGLE_KEY = config.joycon?.statusToggleKey ?? DEFAULT_CONFIG.statusToggleKey;
         const actionsFor = (layout: Layout, side: Side) => {
             const left = LEFT_JOYCON_BUTTON[layout];
             const right = RIGHT_JOYCON_BUTTON[layout];
@@ -159,33 +164,8 @@ export default () => {
         pointer.style.display = 'none';
         document.body.appendChild(pointer);
 
-        /** Connection status indicator (discreet, bottom left, hidden until a pad was seen once) */
-        const status = document.createElement('div');
-        status.style.position = 'fixed';
-        status.style.left = '12px';
-        status.style.bottom = '8px';
-        status.style.zIndex = '100';
-        status.style.fontSize = '22px';
-        status.style.pointerEvents = 'none';
-        status.style.transition = 'opacity 0.6s';
-        status.style.opacity = '0';
-        status.textContent = '🎮';
-        document.body.appendChild(status);
-        let statusTimeout: number | undefined;
-
-        function showStatus(connected: boolean) {
-            if (!STATUS_INDICATOR) {
-                return;
-            }
-            window.clearTimeout(statusTimeout);
-            status.style.filter = connected ? 'none' : 'grayscale(1)';
-            status.style.textDecoration = connected ? 'none' : 'line-through red 3px';
-            status.style.opacity = connected ? '0.8' : '0.5';
-            if (connected) {
-                // flash on (re)connect, then fade away
-                statusTimeout = window.setTimeout(() => (status.style.opacity = '0'), 2000);
-            }
-        }
+        /** Permanent indicator: plugin loaded, controller connected, reports arriving (see status.ts) */
+        const status = createStatus(STATUS_INDICATOR);
 
         function cooldown(key: string) {
             const now = performance.now();
@@ -201,7 +181,15 @@ export default () => {
         function inputs(): PadInput[] {
             const hidPads: PadInput[] = hid
                 .pads()
-                .map((p) => ({ key: p.key, layout: 'raw', side: p.side, buttons: p.buttons, axes: [], hid: true }));
+                .map((p) => ({
+                    key: p.key,
+                    layout: 'raw',
+                    side: p.side,
+                    buttons: p.buttons,
+                    axes: [],
+                    hid: true,
+                    status: { name: p.name, source: 'WebHID', lastReport: p.lastReport, hz: p.hz }
+                }));
             const gamepads = Array.from(navigator.getGamepads ? navigator.getGamepads() : [])
                 .filter((g): g is Gamepad => !!g && g.connected)
                 .filter((g) => hidPads.length === 0 || !isJoyConGamepad(g))
@@ -211,7 +199,8 @@ export default () => {
                     side: sideOf(g, TYPE),
                     buttons: g.buttons.map((b) => b.pressed),
                     axes: [...g.axes],
-                    hid: false
+                    hid: false,
+                    status: { name: g.id, source: 'Gamepad API' as const }
                 }));
             return [...hidPads, ...gamepads];
         }
@@ -219,8 +208,10 @@ export default () => {
         function poll() {
             const seen = new Set<string>();
             let laserHeld = false;
+            const padInputs = inputs();
+            status.update(padInputs.map((input) => input.status));
 
-            for (const input of inputs()) {
+            for (const input of padInputs) {
                 seen.add(input.key);
                 const actions = ACTIONS[input.layout][input.side];
                 const previous = pads.get(input.key);
@@ -237,7 +228,6 @@ export default () => {
                 if (!previous) {
                     // new or reconnected pad: baseline only, no action on this frame
                     console.log(`🎮 Gamepad ${input.key} connected ⚡`);
-                    showStatus(true);
                     continue;
                 }
 
@@ -267,7 +257,6 @@ export default () => {
                 if (!seen.has(key)) {
                     pads.delete(key);
                     console.log(`🎮 Gamepad ${key} disconnected 🔌`);
-                    showStatus(false);
                 }
             }
 
@@ -360,13 +349,29 @@ export default () => {
             console.log(`🎮 gamepaddisconnected event (${e.gamepad.id})`)
         );
 
-        // WebHID needs one user gesture to grant the Joy Con (Chrome remembers it afterwards): a key press is one
+        /**
+         * Keys are registered through Reveal, so Reveal's own use of a key (C closes an overlay) never fires, and
+         * they show up in Reveal's help (?). The test page's mocked deck has no key bindings: plain listener there.
+         * Letter keys only.
+         */
+        function bindKey(letter: string, description: string, callback: () => void) {
+            const key = letter.toUpperCase();
+            if (typeof deck.addKeyBinding === 'function') {
+                deck.addKeyBinding({ keyCode: key.charCodeAt(0), key, description }, callback);
+            } else {
+                document.addEventListener('keydown', (e) => e.key.toUpperCase() === key && callback());
+            }
+        }
+
+        // WebHID needs one user gesture to grant the Joy Con (Chrome remembers it afterwards): a key press is one.
+        // It always opens the picker: picking an attached Joy Con is harmless, and it allows a second one
         if (hid.supported && HID_CONNECT_KEY) {
-            document.addEventListener('keydown', (e) => {
-                if (e.key === HID_CONNECT_KEY && hid.pads().length === 0) {
-                    hid.connect().catch((error) => console.log(`🎮 WebHID connect cancelled: ${error}`));
-                }
-            });
+            bindKey(HID_CONNECT_KEY, 'Connect the Joy Con (WebHID)', () =>
+                hid.connect().catch((error) => console.log(`🎮 WebHID connect cancelled: ${error}`))
+            );
+        }
+        if (STATUS_TOGGLE_KEY) {
+            bindKey(STATUS_TOGGLE_KEY, 'Show / hide the Joy Con indicator', () => status.toggle());
         }
 
         plugin.connectHID = () => hid.connect();
