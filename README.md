@@ -48,9 +48,21 @@ By default, the plugin is configured with the following key bindings :
 | `SL`      | `SL`   | Previous slide |
 | `L`       | `R`    | Toggle overview |
 | `ZL`      | `ZR`   | Quit overview / Next slide |
-| `STICK`   | `STICK`| Toggle pointer |
+| `STICK`   | `STICK`| Laser pointer while held (WebHID) / toggle pointer (Gamepad API) |
 | `-`       | `+`    | Toggle pause |
 | `CAPTURE` | `HOME` | Toggle help |
+
+The side of each Joy Con is detected on its own (its product id, or "(L)" / "(R)" in its name), so the left and right mappings apply to the right controller whatever `type` says.
+
+## WebHID and the laser pointer (Chrome)
+
+On macOS, a lone Joy Con is a "micro gamepad" for Apple's GameController layer, and **Chrome and Safari don't expose it through the Gamepad API** (Firefox does, it reads the raw device). So in Chrome the plugin talks to the Joy Con directly over [WebHID](https://developer.mozilla.org/en-US/docs/Web/API/WebHID_API):
+
+- **first time only**: press `c` (or call `connectHID()` from a click) and pick the Joy Con in Chrome's window. Chrome remembers the permission for this origin (host + port): after that, the Joy Con attaches on its own, at page load and on every reconnection
+- player light 1 turns on when the plugin has taken over the Joy Con
+- **laser pointer**: hold the stick press and point the Joy Con at the screen like a remote. The dot starts at the center on every press and follows the gyroscope; release to hide it
+
+Both sources run side by side: WebHID for Joy Cons in Chrome, the Gamepad API for everything else (a Joy Con read by WebHID is ignored on the Gamepad API side, so nothing fires twice).
 
 ## Configuration
 
@@ -60,11 +72,18 @@ You can configure the plugin with the following options :
 // ...
 plugins: [ /* ... */ ],
 joycon: {
-    type: 'right',         // or 'left', depending on the Joy Con you want to use, default is 'right'
+    type: 'right',         // or 'left': fallback when the side of a controller can't be detected, default is 'right'
     cooldown: 200,         // the minimum time in ms between two actions of the same button, default is 300
-    pointerSpeed: 10,      // the speed of the pointer, default is 20
+    pointerSpeed: 10,      // the speed of the stick pointer (Gamepad API), default is 20
     enableStick: false,    // navigate with the stick (when not pointing), default is false
-    statusIndicator: true  // show a discreet 🎮 in the bottom left corner on (dis)connection, default is true
+    statusIndicator: true, // show a discreet 🎮 in the bottom left corner on (dis)connection, default is true
+    hidConnectKey: 'c',    // key opening the WebHID device picker (false to disable), default is 'c'
+    laser: {
+        fov: 30,           // degrees of wrist rotation to sweep the whole screen width, default is 30
+        // which gyroscope axis moves the dot, per side (defaults measured on a left Joy Con, right one to verify)
+        left: { yawAxis: 2, pitchAxis: 1, invertX: true, invertY: false },
+        right: { yawAxis: 2, pitchAxis: 1, invertX: true, invertY: false }
+    }
 }
 ```
 
@@ -76,15 +95,20 @@ Built to survive Bluetooth drops and the Mac going to sleep, without reloading t
 - an action fires once per press (on the press edge), holding a button never repeats it, so a button stuck "pressed" by a dropped link cannot skip slides
 - a pad that (re)connects is baselined silently: the press that wakes it up does nothing
 - a single polling loop for the whole presentation, whatever connects or disconnects
+- WebHID: a watchdog re-sends the Joy Con setup whenever its reports stop (sleep, reconnection)
 
-Tip: keep the Mac awake while presenting with `caffeinate -dis npm run dev`.
+On stage:
+
+- keep the Mac awake while presenting with `caffeinate -dis npm run dev`
+- if the Joy Con drops, press any button: that wakes it up and reconnects it, and that press does nothing on the slides
+- if the Joy Con looks connected in macOS but sends nothing at all, "forget" it in the Bluetooth settings and pair it again (seen after the battery ran flat)
 
 ## Development
 
 - Clone the repo
 - Install dependencies with `npm install`
-- Run the test app with `npm start`
-  - The Reveal API is mocked, just open the console to verify inputs are correctly handled
+- Run the test app with `npm start` and open it in Chrome (WebHID) or Firefox
+  - The Reveal API is mocked: the page shows what the browser sees, what the plugin did (a fake slide counter), the WebHID state and the live gyroscope, and an event log
 
 ## Planned features
 
