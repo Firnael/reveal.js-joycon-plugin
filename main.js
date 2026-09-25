@@ -141,8 +141,15 @@ if (!navigator.hid) {
 
 const GYRO_RANGE_DPS = 200;
 
+let laserWasActive = false;
+
 function renderHID() {
     const { hid = [], laser } = plugin.debug();
+    // the laser is not a slide action: log its on / off edges in the plugin's action log
+    if (laser && laser.active !== laserWasActive) {
+        laserWasActive = laser.active;
+        append('actions', laser.active ? 'laser on 🔴' : 'laser off');
+    }
     if (navigator.hid) {
         $('hid').innerHTML = hid.length
             ? hid
