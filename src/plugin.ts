@@ -3,7 +3,9 @@ import type { Api, Options } from 'reveal.js';
 const DEFAULT_CONFIG = {
     type: 'right',
     cooldown: 300,
-    pointerSpeed: 20
+    pointerSpeed: 20,
+    enableStick: false,
+    statusIndicator: true
 };
 
 interface JoyConPluginOptions extends Options {
@@ -11,40 +13,39 @@ interface JoyConPluginOptions extends Options {
         type: string | undefined;
         cooldown: number | undefined;
         pointerSpeed: number | undefined;
+        enableStick: boolean | undefined;
+        statusIndicator: boolean | undefined;
     };
 }
 
-type GamePadControllers = {
-    [key: string]: Gamepad;
+/** What we remember about a pad between two frames (never the Gamepad object itself) */
+type PadState = {
+    buttons: boolean[];
+    axes: boolean[];
 };
 
+/**
+ * Button indexes depend on who reads the Joy Con:
+ * - 'browser': Chrome's own gamepad mapping
+ * - 'raw': the bit position in the Joy Con's own HID input report (Firefox reads that, and so would WebHID)
+ */
+type Layout = 'browser' | 'raw';
+
 const RIGHT_JOYCON_BUTTON = {
-    A: 0,
-    X: 1,
-    B: 2,
-    Y: 3,
-    SL: 4,
-    SR: 5,
-    ZR: 7,
-    R: 8,
-    PLUS: 9,
-    STICK: 10,
-    HOME: 16
+    browser: { A: 0, X: 1, B: 2, Y: 3, SL: 4, SR: 5, ZR: 7, R: 8, PLUS: 9, STICK: 10, HOME: 16 },
+    raw: { A: 0, X: 1, B: 2, Y: 3, SL: 4, SR: 5, PLUS: 9, STICK: 11, HOME: 12, R: 14, ZR: 15 }
 };
 
 const LEFT_JOYCON_BUTTON = {
-    DLEFT: 0,
-    DBOTTOM: 1,
-    DUP: 2,
-    DRIGHT: 3,
-    SL: 4,
-    SR: 5,
-    ZL: 6,
-    L: 8,
-    MINUS: 9,
-    STICK: 10,
-    SCREENSHOT: 16
+    browser: { DLEFT: 0, DBOTTOM: 1, DUP: 2, DRIGHT: 3, SL: 4, SR: 5, ZL: 6, L: 8, MINUS: 9, STICK: 10, SCREENSHOT: 16 },
+    // TODO verify on a real left Joy Con (taken from the Joy Con reverse engineering notes, not tested yet)
+    raw: { DLEFT: 0, DBOTTOM: 1, DUP: 2, DRIGHT: 3, SL: 4, SR: 5, MINUS: 8, STICK: 10, SCREENSHOT: 13, L: 14, ZL: 15 }
 };
+
+/** Firefox exposes the raw HID device, and names it "vendor-product-name" (e.g. "057e-2007-Joy-Con (R)") */
+function layoutOf(gamepad: Gamepad): Layout {
+    return /^[0-9a-f]{4}-[0-9a-f]{4}-/i.test(gamepad.id) ? 'raw' : 'browser';
+}
 
 const AXIS = {
     LOY: 0,
@@ -53,6 +54,9 @@ const AXIS = {
     ROX: 3
 };
 
+const STICK_NAV_THRESHOLD = 0.85;
+const POINTER_THRESHOLD = 0.2;
+
 const init = (deck: Api) => {
     const config = deck.getConfig() as JoyConPluginOptions;
     console.log('Joy Con plugin loaded', config.joycon || {});
@@ -60,24 +64,38 @@ const init = (deck: Api) => {
     const TYPE = config.joycon?.type || DEFAULT_CONFIG.type;
     const COOLDOWN = config.joycon?.cooldown || DEFAULT_CONFIG.cooldown;
     const POINTER_SPEED = config.joycon?.pointerSpeed || DEFAULT_CONFIG.pointerSpeed;
-    const ACTIONS = {
-        RIGHT: TYPE === 'left' ? LEFT_JOYCON_BUTTON.DRIGHT : RIGHT_JOYCON_BUTTON.A,
-        LEFT: TYPE === 'left' ? LEFT_JOYCON_BUTTON.DLEFT : RIGHT_JOYCON_BUTTON.Y,
-        UP: TYPE === 'left' ? LEFT_JOYCON_BUTTON.DUP : RIGHT_JOYCON_BUTTON.X,
-        DOWN: TYPE === 'left' ? LEFT_JOYCON_BUTTON.DBOTTOM : RIGHT_JOYCON_BUTTON.B,
-        PREV: TYPE === 'left' ? LEFT_JOYCON_BUTTON.SL : RIGHT_JOYCON_BUTTON.SL,
-        NEXT: TYPE === 'left' ? LEFT_JOYCON_BUTTON.SR : RIGHT_JOYCON_BUTTON.SR,
-        QUIT_OVERVIEW_OR_NEXT: TYPE === 'left' ? LEFT_JOYCON_BUTTON.ZL : RIGHT_JOYCON_BUTTON.ZR,
-        TOGGLE_OVERVIEW: TYPE === 'left' ? LEFT_JOYCON_BUTTON.L : RIGHT_JOYCON_BUTTON.R,
-        TOGGLE_POINTING: TYPE === 'left' ? LEFT_JOYCON_BUTTON.STICK : RIGHT_JOYCON_BUTTON.STICK,
-        TOGGLE_PAUSE: TYPE === 'left' ? LEFT_JOYCON_BUTTON.MINUS : RIGHT_JOYCON_BUTTON.PLUS,
-        TOGGLE_HELP: TYPE === 'left' ? LEFT_JOYCON_BUTTON.SCREENSHOT : RIGHT_JOYCON_BUTTON.HOME
+    const ENABLE_STICK = config.joycon?.enableStick ?? DEFAULT_CONFIG.enableStick;
+    const STATUS_INDICATOR = config.joycon?.statusIndicator ?? DEFAULT_CONFIG.statusIndicator;
+    const actionsFor = (layout: Layout) => {
+        const left = LEFT_JOYCON_BUTTON[layout];
+        const right = RIGHT_JOYCON_BUTTON[layout];
+        return {
+            RIGHT: TYPE === 'left' ? left.DRIGHT : right.A,
+            LEFT: TYPE === 'left' ? left.DLEFT : right.Y,
+            UP: TYPE === 'left' ? left.DUP : right.X,
+            DOWN: TYPE === 'left' ? left.DBOTTOM : right.B,
+            PREV: TYPE === 'left' ? left.SL : right.SL,
+            NEXT: TYPE === 'left' ? left.SR : right.SR,
+            QUIT_OVERVIEW_OR_NEXT: TYPE === 'left' ? left.ZL : right.ZR,
+            TOGGLE_OVERVIEW: TYPE === 'left' ? left.L : right.R,
+            TOGGLE_POINTING: TYPE === 'left' ? left.STICK : right.STICK,
+            TOGGLE_PAUSE: TYPE === 'left' ? left.MINUS : right.PLUS,
+            TOGGLE_HELP: TYPE === 'left' ? left.SCREENSHOT : right.HOME
+        };
     };
+    const ACTIONS_BY_LAYOUT = { browser: actionsFor('browser'), raw: actionsFor('raw') };
 
-    const haveEvents = 'ongamepadconnected' in window;
-
-    const controllers: GamePadControllers = {};
-    let cooldownedButtons: string[] = [];
+    /**
+     * Robustness rules (Bluetooth drops, Mac sleep):
+     * - we poll navigator.getGamepads() every frame and never keep a Gamepad object around,
+     *   so a reconnect is picked up whatever the browser's connect/disconnect events did
+     * - an action fires on the press edge only (released -> pressed), never while held,
+     *   so a button frozen "pressed" by a dropped link cannot fire over and over
+     * - a pad seen for the first time (or again after a drop) is baselined silently,
+     *   so the press that wakes it up does not skip a slide
+     */
+    const pads = new Map<string, PadState>();
+    const lastFired = new Map<string, number>();
 
     /** Pointer config */
     let pointing = false;
@@ -94,134 +112,133 @@ const init = (deck: Api) => {
     pointer.style.display = 'none';
     document.body.appendChild(pointer);
 
-    function cooldown(button: string) {
-        if (cooldownedButtons.indexOf(button) < 0) {
-            cooldownedButtons.push(button);
+    /** Connection status indicator (discreet, bottom left, hidden until a pad was seen once) */
+    const status = document.createElement('div');
+    status.style.position = 'fixed';
+    status.style.left = '12px';
+    status.style.bottom = '8px';
+    status.style.zIndex = '100';
+    status.style.fontSize = '22px';
+    status.style.pointerEvents = 'none';
+    status.style.transition = 'opacity 0.6s';
+    status.style.opacity = '0';
+    status.textContent = '🎮';
+    document.body.appendChild(status);
+    let statusTimeout: number | undefined;
 
-            setTimeout(() => {
-                cooldownedButtons = cooldownedButtons.filter((v) => {
-                    return v !== button;
-                });
-            }, COOLDOWN);
-
-            return true;
+    function showStatus(connected: boolean) {
+        if (!STATUS_INDICATOR) {
+            return;
         }
-        return false;
+        window.clearTimeout(statusTimeout);
+        status.style.filter = connected ? 'none' : 'grayscale(1)';
+        status.style.textDecoration = connected ? 'none' : 'line-through red 3px';
+        status.style.opacity = connected ? '0.8' : '0.5';
+        if (connected) {
+            // flash on (re)connect, then fade away
+            statusTimeout = window.setTimeout(() => (status.style.opacity = '0'), 2000);
+        }
     }
 
-    function scanGamepads() {
-        const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-        for (let i = 0; i < gamepads.length; i++) {
-            const gamepad = gamepads[i];
-            if (!gamepad) {
+    function cooldown(key: string) {
+        const now = performance.now();
+        const last = lastFired.get(key);
+        if (last !== undefined && now - last < COOLDOWN) {
+            return false;
+        }
+        lastFired.set(key, now);
+        return true;
+    }
+
+    function padKey(gamepad: Gamepad) {
+        return `${gamepad.index}:${gamepad.id}`;
+    }
+
+    function snapshot(gamepad: Gamepad): PadState {
+        return {
+            buttons: gamepad.buttons.map((b) => b.pressed),
+            axes: gamepad.axes.map((a) => Math.abs(a) > STICK_NAV_THRESHOLD)
+        };
+    }
+
+    function connectedPads(): Gamepad[] {
+        const list = navigator.getGamepads ? navigator.getGamepads() : [];
+        return Array.from(list).filter((g): g is Gamepad => !!g && g.connected);
+    }
+
+    function poll() {
+        const seen = new Set<string>();
+
+        for (const gamepad of connectedPads()) {
+            const key = padKey(gamepad);
+            seen.add(key);
+            const previous = pads.get(key);
+            const current = snapshot(gamepad);
+            pads.set(key, current);
+
+            if (!previous) {
+                // new or reconnected pad: baseline only, no action on this frame
+                console.log(`🎮 Gamepad ${key} connected ⚡`);
+                showStatus(true);
                 continue;
             }
-            if (gamepad.index in controllers) {
-                controllers[gamepad.index] = gamepad;
-            } else {
-                addGamepad(gamepad);
-            }
+
+            // buttons: fire on the press edge only
+            current.buttons.forEach((pressed, i) => {
+                if (pressed && !previous.buttons[i] && cooldown(`button-${i}`)) {
+                    handleButton(i, ACTIONS_BY_LAYOUT[layoutOf(gamepad)]);
+                }
+            });
+
+            // axes: stick navigation on the threshold-crossing edge, pointer while held
+            gamepad.axes.forEach((axisValue, i) => {
+                if (ENABLE_STICK && !pointing && current.axes[i] && !previous.axes[i] && cooldown(`axis-${i}`)) {
+                    handleStickNavigation(i, axisValue);
+                }
+                if (pointing && Math.abs(axisValue) > POINTER_THRESHOLD) {
+                    movePointer(i, axisValue);
+                }
+            });
         }
-    }
 
-    function updateStatus() {
-        if (!haveEvents) {
-            scanGamepads();
-        }
-
-        for (const j in controllers) {
-            if (Object.prototype.hasOwnProperty.call(controllers, j)) {
-                const controller = controllers[j];
-                if (!controller) {
-                    continue;
-                }
-
-                // handle button presses
-                for (let i = 0; i < controller.buttons.length; i++) {
-                    const button = controller.buttons[i];
-
-                    let pressed = undefined;
-                    if (typeof button === 'object') {
-                        pressed = button.pressed;
-                    }
-
-                    if (pressed && cooldown(`button-${i}`)) {
-                        handleRightJoyConButton(i);
-                    }
-                }
-
-                // handle axis presses
-                // - horizontal is 0
-                // - vertical is 1
-                for (let i = 0; i < controller.axes.length; i++) {
-                    // this contains a value between -1 and 1, depending on the axis orientation
-                    const axisValue = controller.axes[i];
-                    if (!axisValue) {
-                        // means the axis is not being used, so the value is either -0 or 0
-                        continue;
-                    }
-
-                    if (Math.abs(axisValue) > 0.85 && !pointing) {
-                        if (cooldown(`axis-${i}`)) {
-                            switch (i) {
-                                case AXIS.LOY: {
-                                    if (axisValue < 0) {
-                                        deck.down();
-                                    } else {
-                                        deck.up();
-                                    }
-                                    break;
-                                }
-                                case AXIS.LOX: {
-                                    if (axisValue < 0) {
-                                        deck.left();
-                                    } else {
-                                        deck.right();
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    if (Math.abs(axisValue) > 0.2 && pointing) {
-                        const left = parseInt(pointer.style.left.replace('px', ''));
-                        const top = parseInt(pointer.style.top.replace('px', ''));
-                        const constrainValue = (newVal: number) => {
-                            return Math.min(Math.max(newVal, 0), window.innerWidth);
-                        };
-                        handleRightJoyConAxis(i, axisValue, left, top, constrainValue);
-                    }
-                }
+        // pads that vanished (event or not): forget them, so they get re-baselined on return
+        for (const key of Array.from(pads.keys())) {
+            if (!seen.has(key)) {
+                pads.delete(key);
+                console.log(`🎮 Gamepad ${key} disconnected 🔌`);
+                showStatus(false);
             }
         }
 
-        requestAnimationFrame(updateStatus);
+        requestAnimationFrame(poll);
     }
 
-    function handleRightJoyConAxis(
-        axisIndex: number,
-        axis: number,
-        left: number,
-        top: number,
-        constrainValue: Function
-    ) {
+    function handleStickNavigation(axisIndex: number, axisValue: number) {
         switch (axisIndex) {
-            case AXIS.LOY: {
-                const newVal = -axis * POINTER_SPEED + top;
-                pointer.style.top = constrainValue(newVal) + 'px';
+            case AXIS.LOY:
+                axisValue < 0 ? deck.down() : deck.up();
                 break;
-            }
-            case AXIS.LOX: {
-                const newVal = axis * POINTER_SPEED + left;
-                pointer.style.left = constrainValue(newVal) + 'px';
+            case AXIS.LOX:
+                axisValue < 0 ? deck.left() : deck.right();
                 break;
-            }
         }
     }
 
-    function handleRightJoyConButton(button: number) {
-        console.log(button);
+    function movePointer(axisIndex: number, axisValue: number) {
+        const left = parseInt(pointer.style.left.replace('px', '')) || window.innerWidth / 2;
+        const top = parseInt(pointer.style.top.replace('px', '')) || window.innerHeight / 2;
+        const clamp = (value: number, max: number) => Math.min(Math.max(value, 0), max);
+        switch (axisIndex) {
+            case AXIS.LOY:
+                pointer.style.top = clamp(-axisValue * POINTER_SPEED + top, window.innerHeight) + 'px';
+                break;
+            case AXIS.LOX:
+                pointer.style.left = clamp(axisValue * POINTER_SPEED + left, window.innerWidth) + 'px';
+                break;
+        }
+    }
+
+    function handleButton(button: number, ACTIONS: ReturnType<typeof actionsFor>) {
         switch (button) {
             case ACTIONS.RIGHT:
                 deck.right();
@@ -266,31 +283,19 @@ const init = (deck: Api) => {
         }
     }
 
-    function addGamepad(gamepad: Gamepad) {
-        controllers[gamepad.index] = gamepad;
-        requestAnimationFrame(updateStatus);
-    }
+    // after sleep or a hidden tab, start from a clean slate: every pad is re-baselined
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            pads.clear();
+        }
+    });
 
-    function removeGamepad(gamepad: Gamepad) {
-        delete controllers[gamepad.index];
-    }
+    // events are only a hint to log; the polling loop is the source of truth
+    window.addEventListener('gamepadconnected', (e) => console.log(`🎮 gamepadconnected event (${e.gamepad.id})`));
+    window.addEventListener('gamepaddisconnected', (e) => console.log(`🎮 gamepaddisconnected event (${e.gamepad.id})`));
 
-    function connecthandler(e: GamepadEvent) {
-        addGamepad(e.gamepad);
-        console.log(`🎮 Gamepad ${e.gamepad.index} connected ⚡`);
-    }
-
-    function disconnecthandler(e: GamepadEvent) {
-        removeGamepad(e.gamepad);
-        console.log(`🎮 Gamepad ${e.gamepad.index} disconnected 🔌`);
-    }
-
-    window.addEventListener('gamepadconnected', connecthandler);
-    window.addEventListener('gamepaddisconnected', disconnecthandler);
-
-    if (!haveEvents) {
-        setInterval(scanGamepads, 500);
-    }
+    // one loop for the plugin's whole life, whatever connects or disconnects
+    requestAnimationFrame(poll);
 };
 
 export default () => ({
