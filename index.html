@@ -38,7 +38,15 @@
         .log .flash { animation: flash 1s; }
         @keyframes flash { from { background: rgba(255, 69, 84, .35); } to { background: transparent; } }
         button.clear { float: right; background: none; border: 1px solid #444; color: var(--muted); border-radius: 6px; cursor: pointer; font-size: 12px; }
-        .help p { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0; }
+        .help p, .hint { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0 0 12px; }
+        #hid-connect { background: var(--on); color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; font-size: 14px; cursor: pointer; margin-bottom: 12px; }
+        .kv { display: grid; grid-template-columns: 90px 1fr; gap: 4px 12px; font-size: 14px; margin-bottom: 10px; }
+        .kv span:nth-child(odd) { color: var(--muted); }
+        .gyro-axis { font-size: 14px; margin-bottom: 12px; font-variant-numeric: tabular-nums; }
+        .gyro-axis .bar { height: 14px; }
+        .gyro-axis .bar span { background: var(--on); }
+        .gyro-axis .bar::after { content: ''; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; background: var(--muted); }
+        kbd { background: #33363f; border-radius: 4px; padding: 1px 6px; }
     </style>
 </head>
 <body>
@@ -64,6 +72,23 @@
             <pre class="log" id="actions"></pre>
         </section>
     </main>
+
+    <div class="row">
+        <section>
+            <h2>WebHID (Chrome) &amp; laser</h2>
+            <p class="hint">Chrome can't see a lone Joy Con through the gamepad API on macOS: WebHID reads it directly,
+                gyroscope included. First time only: click the button (or press <kbd>c</kbd>) and pick the Joy Con.
+                Then <b>hold the stick press</b> and point: that's the laser.</p>
+            <button id="hid-connect">Connect Joy Con (WebHID)</button>
+            <div id="hid"><p class="empty">No WebHID Joy Con.</p></div>
+        </section>
+        <section>
+            <h2>Gyroscope (degrees / second, resting offset removed)</h2>
+            <p class="hint">To set the laser axes: point the Joy Con at the screen like a remote, turn your wrist
+                <b>left ↔ right</b>, then <b>up ↕ down</b>, and note which bar moves and its sign.</p>
+            <div id="gyro"></div>
+        </section>
+    </div>
 
     <div class="row">
         <section>

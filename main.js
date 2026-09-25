@@ -72,7 +72,7 @@ const BUTTON_NAMES = {
     // raw HID bit order (Firefox); left side not verified on a real left Joy Con yet
     raw: {
         right: { 0: 'A', 1: 'X', 2: 'B', 3: 'Y', 4: 'SL', 5: 'SR', 9: '+', 11: 'STICK', 12: 'HOME', 14: 'R', 15: 'ZR' },
-        left: { 0: '◀', 1: '▼', 2: '▲', 3: '▶', 4: 'SL', 5: 'SR', 8: '−', 10: 'STICK', 13: 'CAPTURE', 14: 'L', 15: 'ZL' }
+        left: { 0: '▼', 1: '▶', 2: '◀', 3: '▲', 4: 'SL', 5: 'SR', 8: '−', 10: 'STICK', 13: 'CAPTURE', 14: 'L', 15: 'ZL' }
     }
 };
 const known = new Map(); // pad key -> last "connected" flag, to log changes only
@@ -127,3 +127,55 @@ requestAnimationFrame(renderPads);
 
 const plugin = Plugin();
 plugin.init(RevealMock);
+
+/**
+ * WebHID panel + live gyroscope (from the plugin's debug state)
+ */
+$('hid-connect').addEventListener('click', () =>
+    plugin.connectHID().catch((error) => append('events', `WebHID connect cancelled: ${error}`))
+);
+if (!navigator.hid) {
+    $('hid-connect').disabled = true;
+    $('hid').innerHTML = '<p class="empty">WebHID is not available in this browser (Chrome only).</p>';
+}
+
+const GYRO_RANGE_DPS = 200;
+
+function renderHID() {
+    const { hid = [], laser } = plugin.debug();
+    if (navigator.hid) {
+        $('hid').innerHTML = hid.length
+            ? hid
+                  .map((j) => {
+                      const names = /\(L\)/.test(j.name) ? BUTTON_NAMES.raw.left : BUTTON_NAMES.raw.right;
+                      const buttons = j.buttons
+                          .map((pressed, i) => (names[i] ? `<div class="btn ${pressed ? 'on' : ''}">${names[i]}<small>#${i}</small></div>` : ''))
+                          .join('');
+                      return `<div class="kv">
+                          <span>device</span><span>${j.name}</span>
+                          <span>mode</span><span>${j.mode}</span>
+                          <span>reports</span><span>${j.hz} / s</span>
+                          <span>battery</span><span>${j.battery}</span>
+                          <span>laser</span><span>${laser.active ? '🔴 on' : 'off (hold the stick press)'}</span>
+                      </div><div class="buttons">${buttons}</div>`;
+                  })
+                  .join('')
+            : '<p class="empty">No WebHID Joy Con: click the button above and pick it.</p>';
+    }
+
+    const gyro = hid[0]?.gyro ?? [0, 0, 0];
+    $('gyro').innerHTML = gyro
+        .map((value, axis) => {
+            const rate = value - (laser?.bias[axis] ?? 0);
+            const width = Math.min(Math.abs(rate) / GYRO_RANGE_DPS, 1) * 50;
+            const left = rate < 0 ? 50 - width : 50;
+            return `<div class="gyro-axis">axis ${axis}: <b>${rate >= 0 ? '+' : ''}${rate.toFixed(1)}</b>
+                <span class="t">(offset ${(laser?.bias[axis] ?? 0).toFixed(1)})</span>
+                <div class="bar"><span style="left:${left}%;width:${width}%"></span></div></div>`;
+        })
+        .join('');
+
+    requestAnimationFrame(renderHID);
+}
+
+requestAnimationFrame(renderHID);
